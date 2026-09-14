@@ -20,7 +20,15 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
-app = FastAPI()
+app = FastAPI(
+    title="API de livros",
+    description="API para gerenciar catálogo de livros",
+    version="1.0.0",
+    contact={
+        "name": "Matheus Gomes",
+        "email": "mathgomes061@gmail.com"
+    }
+)
 
 my_books: dict = {}
 
@@ -55,9 +63,9 @@ def post_books(book_id: int, book: Book):
 
 @app.put("/update/{book_id}")
 def put_books(book_id: int, book: Book):
-    book_update = my_books.get(book_id)
+    check_book = my_books.get(book_id)
 
-    if book_update is None:
+    if check_book is None:
         raise HTTPException(
             status_code=404,
             detail="Esse livro não foi encontrado"
