@@ -17,10 +17,18 @@
 # Acessar os PATH's desse endpoint
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import Optional
 
 app = FastAPI()
 
 my_books: dict = {}
+
+
+class Book(BaseModel):
+    book_title: str
+    book_author: str
+    book_release: int
 
 
 @app.get("/books")
@@ -37,40 +45,29 @@ def get_books():
 # ano de lançamento do livro
 
 @app.post("/add")
-def post_books(
-    book_id: int, book_title: str, book_author: str, book_release: int
-):
+def post_books(book_id: int, book: Book):
     if book_id in my_books:
         raise HTTPException(status_code=400, detail="Esse livro já existe!")
     else:
-        my_books[book_id] = {
-            "book_title": book_title,
-            "book_author": book_author,
-            "book_release": book_release,
-        }
+        my_books[book_id] = book.dict()
         return {"message": "O livro foi criado com sucesso!"}
 
 
 @app.put("/update/{book_id}")
-def put_books(
-    book_id: int, book_title: str, book_author: str, book_release: int
-):
-    book = my_books.get(book_id)
-    if not book:
-        raise HTTPException(
-            status_code=404, detail="Esse livro não foi encontrado"
-        )
-    else:
-        if book_title:
-            book["book_title"] = book_title
-        if book_author:
-            book["book_author"] = book_author
-        if book_release:
-            book["book_release"] = book_release
+def put_books(book_id: int, book: Book):
+    book_update = my_books.get(book_id)
 
-        return {
-            "As informações do livro foram atualizadas com sucesso!"
-        }
+    if book_update is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Esse livro não foi encontrado"
+        )
+
+    my_books[book_id] = book.dict()
+
+    return {
+        "message": "As informações do livro foram atualizadas com sucesso!"
+    }
 
 
 @app.delete("/delete/{book_id}")
