@@ -78,6 +78,8 @@ def get_books(
     if not my_books:
         return {"message": "Não existe nenhum livro!"}
 
+    sorted_books = sorted(my_books.items(), key=lambda x: x[0])
+
     start = (page - 1) * limit
     end = start + limit
 
@@ -88,7 +90,7 @@ def get_books(
             "book_author": book_data["book_author"],
             "book_release": book_data["book_release"]
         }
-        for book_id, book_data in list(my_books.items())[start:end]
+        for book_id, book_data in sorted_books[start:end]
     ]
 
     return {
