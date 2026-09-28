@@ -21,8 +21,14 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 import secrets
 
-from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy import create_engine, select, UniqueConstraint
+from sqlalchemy.orm import (
+    sessionmaker,
+    DeclarativeBase,
+    Session,
+    Mapped,
+    mapped_column
+)
 
 DATABASE_URL = "sqlite:///./books.db"
 
@@ -53,10 +59,18 @@ class Base(DeclarativeBase):
 
 class BookDB(Base):
     __tablename__ = "Books"
-    id = Column(Integer, primary_key=True, index=True)
-    book_title = Column(String, index=True)
-    book_author = Column(String, index=True)
-    book_release = Column(Integer)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "book_title",
+            "book_author",
+            name="uq_book_title_author"
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    book_title: Mapped[str] = mapped_column(index=True)
+    book_author: Mapped[str] = mapped_column(index=True)
+    book_release: Mapped[int] = mapped_column()
 
 
 class Book(BaseModel):
@@ -96,6 +110,7 @@ def auth_user(credentials: HTTPBasicCredentials = Depends(security)):
 def get_books(
     page: int = 1,
     limit: int = 10,
+    db: Session = Depends(get_session_db),
     credentials: HTTPBasicCredentials = Depends(auth_user)
 ):
     if page < 1 or limit < 1:
@@ -104,60 +119,96 @@ def get_books(
             detail="Page ou limit estão com valores inválidos"
         )
 
-    if not my_books:
+    books = db.query(BookDB).offset((page - 1) * limit).limit(limit).all()
+
+    if not books:
         return {"message": "Não existe nenhum livro!"}
 
-    sorted_books = sorted(my_books.items(), key=lambda x: x[0])
-
-    start = (page - 1) * limit
-    end = start + limit
-
-    paged_books = [
-        {
-            "id": book_id,
-            "book_title": book_data["book_title"],
-            "book_author": book_data["book_author"],
-            "book_release": book_data["book_release"]
-        }
-        for book_id, book_data in sorted_books[start:end]
-    ]
+    total_books = db.query(BookDB).count()
 
     return {
         "page": page,
         "limit": limit,
-        "total": len(my_books),
-        "books": paged_books
+        "total": total_books,
+        "books": [
+            {
+                "id": book.id,
+                "book_title": book.book_title,
+                "book_author": book.book_author,
+                "book_release": book.book_release
+            }
+            for book in books
+        ]
     }
 
 
 @app.post("/add")
 def post_books(
-    book_id: int,
     book: Book,
+    db: Session = Depends(get_session_db),
     credentials: HTTPBasicCredentials = Depends(auth_user)
 ):
-    if book_id in my_books:
-        raise HTTPException(status_code=400, detail="Esse livro já existe!")
-    else:
-        my_books[book_id] = book.model_dump()
-        return {"message": "O livro foi criado com sucesso!"}
+    stmt = select(BookDB).where(
+        BookDB.book_title == book.book_title,
+        BookDB.book_author == book.book_author
+    )
+
+    db_book = db.scalars(stmt).first()
+
+    if db_book:
+        raise HTTPException(
+            status_code=400,
+            detail="Esse livro já existe!"
+        )
+
+    new_book = BookDB(
+        book_title=book.book_title,
+        book_author=book.book_author,
+        book_release=book.book_release
+    )
+    db.add(new_book)
+    db.commit()
+    db.refresh(new_book)
+
+    return {"message": "O livro foi criado com sucesso!"}
 
 
 @app.put("/update/{book_id}")
 def put_books(
     book_id: int,
     book: Book,
+    db: Session = Depends(get_session_db),
     credentials: HTTPBasicCredentials = Depends(auth_user)
 ):
-    check_book = my_books.get(book_id)
+    stmt = select(BookDB).where(BookDB.id == book_id)
 
-    if check_book is None:
+    db_book = db.scalars(stmt).first()
+
+    if not db_book:
         raise HTTPException(
             status_code=404,
             detail="Esse livro não foi encontrado"
         )
 
-    my_books[book_id] = book.model_dump()
+    stmt_duplicate = select(BookDB).where(
+        BookDB.book_title == book.book_title,
+        BookDB.book_author == book.book_author,
+        BookDB.id != book_id
+    )
+
+    existing_book = db.scalars(stmt_duplicate).first()
+
+    if existing_book:
+        raise HTTPException(
+            status_code=400,
+            detail="Já existe outro livro com esse título e autor!"
+        )
+
+    db_book.book_title = book.book_title
+    db_book.book_author = book.book_author
+    db_book.book_release = book.book_release
+    db.commit()
+    db.refresh(db_book)
 
     return {
         "message": "As informações do livro foram atualizadas com sucesso!"
@@ -167,13 +218,20 @@ def put_books(
 @app.delete("/delete/{book_id}")
 def delete_book(
     book_id: int,
+    db: Session = Depends(get_session_db),
     credentials: HTTPBasicCredentials = Depends(auth_user)
 ):
-    if book_id not in my_books:
+    stmt = select(BookDB).where(BookDB.id == book_id)
+
+    db_book = db.scalars(stmt).first()
+
+    if not db_book:
         raise HTTPException(
-            status_code=404, detail="Esse livro não foi encontrado!"
+            status_code=404,
+            detail="Esse livro não foi encontrado"
         )
 
-    del my_books[book_id]
+    db.delete(db_book)
+    db.commit()
 
     return {"message": "Seu livro foi deletado com sucesso!"}
