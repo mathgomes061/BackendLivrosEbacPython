@@ -19,9 +19,15 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
-from typing import Optional
 import secrets
-import os
+
+from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
+
+DATABASE_URL = "sqlite:///./books.db"
+
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 app = FastAPI(
     title="API de livros",
@@ -41,10 +47,33 @@ security = HTTPBasic()
 my_books: dict = {}
 
 
+class Base(DeclarativeBase):
+    pass
+
+
+class BookDB(Base):
+    __tablename__ = "Books"
+    id = Column(Integer, primary_key=True, index=True)
+    book_title = Column(String, index=True)
+    book_author = Column(String, index=True)
+    book_release = Column(Integer)
+
+
 class Book(BaseModel):
     book_title: str
     book_author: str
     book_release: int
+
+
+Base.metadata.create_all(bind=engine)
+
+
+def get_session_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 def auth_user(credentials: HTTPBasicCredentials = Depends(security)):
