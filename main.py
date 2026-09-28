@@ -21,7 +21,12 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 import secrets
 
-from sqlalchemy import create_engine, select, UniqueConstraint
+from sqlalchemy import (
+    create_engine,
+    select,
+    func,
+    UniqueConstraint
+)
 from sqlalchemy.orm import (
     sessionmaker,
     DeclarativeBase,
@@ -119,12 +124,20 @@ def get_books(
             detail="Page ou limit estão com valores inválidos"
         )
 
-    books = db.query(BookDB).offset((page - 1) * limit).limit(limit).all()
+    stmt = (
+        select(BookDB)
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
+
+    books = db.scalars(stmt).all()
 
     if not books:
         return {"message": "Não existe nenhum livro!"}
 
-    total_books = db.query(BookDB).count()
+    total_books = db.scalar(
+        select(func.count()).select_from(BookDB)
+    )
 
     return {
         "page": page,
